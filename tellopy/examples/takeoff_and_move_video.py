@@ -38,6 +38,19 @@ SKIP_RATE_DEFAULT = 0.01
 skip_rate = SKIP_RATE_DEFAULT
 PAUSE_TIME = 1
 
+waypoint_data = OrderedDict() #Goign to test using this to populate waypoints during recording
+waypoint_counter = 0
+
+ref_pos_x = -1
+ref_pos_y = -1
+ref_pos_z = -1
+pos_x = -1
+pos_y = -1
+pos_z = -1
+last_pos_x = -1
+last_pos_y = -1
+last_pos_z = -1
+
 def take_picture(drone, speed):
     if speed == 0:
         return
@@ -64,10 +77,22 @@ def load_flight_log():
         with open(FLIGHT_RECORD_FILENAME, 'r') as f:
             try:
                 global events_to_play
-                
+                global event_counter
+                events_to_play.clear()
+                event_counter = 0
                 events_load = json.load(f)
+                #events_to_play = events_load
                 for i, val in enumerate(events_load):
-                    events_to_play[i] = events_load[val]
+                    l_val = events_load[val]
+                    k_pressed = l_val['key_pressed']
+                    dur = l_val['dur_pressed']
+                    
+                    if 'posx' in l_val and 'posy' in l_val and 'posz'in l_val:
+                        pos = (l_val['posx'], l_val['posy'], l_val['posz'])
+                    
+                    events_to_play[str(event_counter)] = {'key_pressed': k_pressed, 'dur_pressed': dur, 'position': pos}
+                    event_counter = event_counter + 1
+                    
 
                 print('loaded flight log file: ',events_to_play)
 
@@ -95,6 +120,27 @@ def pause(drone, speed):
     print("PAUSING")
     time.sleep(1.0)
 
+def reset_vms(drone, speed):
+    global ref_pos_x
+    global ref_pos_y
+    global ref_pos_z
+    global last_pos_x
+    global last_pos_y
+    global last_pos_z
+    global pos_x
+    global pos_y
+    global pos_z
+
+    ref_pos_x = -1
+    ref_pos_y = -1
+    ref_pos_z = -1
+    last_pos_x = -1
+    last_pos_y = -1
+    last_pos_z = -1
+    pos_x = -1
+    pos_y = -1
+    pos_z = -1
+
 controls = {
     'w': 'forward',
     's': 'backward',
@@ -116,6 +162,7 @@ controls = {
     'l': lambda enabled: set_record_flight_log(enabled),
     'k': lambda drone, speed: load_flight_log(),
     'z': pause,
+    'r': reset_vms
 }
 
 class FlightDataDisplay(object):
@@ -215,11 +262,58 @@ def addPause():
     try:
         global event_list
         global event_counter
-        event_list[event_counter] = {'z' : PAUSE_TIME}
+        event_list[event_counter] = {'key_pressed': 'z', 'dur_pressed' : PAUSE_TIME}
         event_counter = event_counter + 1
         print("ADDING PAUSET LIST")
     except:
         print(str("ERROR"))
+
+def log_data_handler(event, sender, data):
+    """
+        Listener to log data from the drone.
+    """  
+    global ref_pos_x
+    global ref_pos_y
+    global ref_pos_z
+    global last_pos_x
+    global last_pos_y
+    global last_pos_z
+    global pos_x
+    global pos_y
+    global pos_z
+
+    pos_x = -data.mvo.pos_x
+    pos_y = -data.mvo.pos_y
+    pos_z = -data.mvo.pos_z
+    #print("------ MVO {0}, {1}, {2}".format(pos_x, pos_y, pos_z))
+    if abs(pos_x)+abs(pos_y)+abs(pos_z) > 0.07:
+        if ref_pos_x == -1: # First time we have meaningful values, we store them as reference
+            ref_pos_x = pos_x
+            ref_pos_y = pos_y
+            ref_pos_z = pos_z
+        else:
+            pos_x = pos_x - ref_pos_x
+            pos_y = pos_y - ref_pos_y
+            pos_z = pos_z - ref_pos_z
+    
+    if pos_x != last_pos_x or pos_y != last_pos_y or pos_z != last_pos_z:
+        print("------ POS {0}, {1}, {2}".format(pos_x, pos_y, pos_z ))
+        last_pos_x = pos_x
+        last_pos_y = pos_y
+        last_pos_z = pos_z
+
+    qx = data.imu.q1
+    qy = data.imu.q2
+    qz = data.imu.q3
+    qw = data.imu.q0
+
+    # yaw = quat_to_yaw_deg(qx,qy,qz,qw)
+
+    # if write_log_data:
+    #     if write_header:
+    #         log_file.write('%s\n' % data.format_cvs_header())
+    #         write_header = False
+    #         log_file.write('%s\n' % data.format_cvs())
 
 def main():
     pygame.init()
@@ -245,9 +339,15 @@ def main():
     drone.subscribe(drone.EVENT_FLIGHT_DATA, flightDataHandler)
     drone.subscribe(drone.EVENT_VIDEO_FRAME, videoFrameHandler)
     drone.subscribe(drone.EVENT_FILE_RECEIVED, handleFileReceived)
+    drone.subscribe(drone.EVENT_LOG_DATA, log_data_handler)
+
     speed = 30
     last_key = None
     start_time = None
+
+    global pos_x
+    global pos_y
+    global pos_z
 
     try:
         while 1:
@@ -273,6 +373,9 @@ def main():
                         if keyname == 'l':
                             val = not record_flight_log
                             key_handler(val)
+                        elif keyname == 'r':
+                            #do nothing
+                            u=0
                         elif type(key_handler) == str:
                             getattr(drone, key_handler)(speed)
                         else:
@@ -289,13 +392,13 @@ def main():
                     
                     #We dont want our logging enabled load events to replay
                     #Will have to create a list of elements to allow writing after this is working
-                    if record_flight_log == True and keyname != 'l' and keyname != 'k':
+                    if record_flight_log == True and keyname != 'l' and keyname != 'k' and keyname != 'r':
                         #Right now just going to log keydown and see hwo it works
                         #Casting below to int just to cut down on size stored. This is in ms so lower preceision
                         #should be fine
                         curr_time = pygame.time.get_ticks()
                         print("KEY_UP TIME SET: {0}".format(curr_time))
-                        event_list[event_counter] = {keyname: (curr_time - start_time)}
+                        event_list[event_counter] = {'key_pressed':keyname, 'dur_pressed': (curr_time - start_time), 'posx':pos_x, 'posy': pos_y, 'posz': pos_z}
                         event_counter = event_counter + 1
                         print("DIFF IN TIME IS: {0}".format(curr_time - start_time))
                         last_key = None

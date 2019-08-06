@@ -1,5 +1,5 @@
 import time
-#from time import sleep
+from time import sleep
 import sys
 import tellopy
 import pygame
@@ -15,6 +15,11 @@ video_recorder = None
 font = None
 wid = None
 date_fmt = '%Y-%m-%d_%H%M%S'
+
+FORWARD_SPEED = 20
+COUNTER_SPEED = 1
+TURN_SPEED = 30
+COUNTER_SLEEP = 2
 
 controls = {
     'w': 'forward',
@@ -45,34 +50,43 @@ def handler(event, sender, data, **args):
     if event is drone.EVENT_FLIGHT_DATA:
         print(data)
 
+def MoveForward(drone, time):
+    drone.forward(FORWARD_SPEED)
+    sleep(time)
+    drone.backward(COUNTER_SPEED)
+    sleep(COUNTER_SLEEP)
 
-#def test():
-#    drone = tellopy.Tello()
-#    try:
-#        drone.subscribe(drone.EVENT_FLIGHT_DATA, handler)##
-#
-#        drone.connect()
-#        drone.wait_for_connection(60.0)
-#        drone.takeoff()
-#        sleep(5)
-#        drone.up(10)
-#        sleep(5)
-#        drone.left(10)
-#        sleep(5)
-#        drone.right(10)
-#        sleep(5)
-#        #drone.left(10)
-#        #sleep(5)
-#        #drone.right(10)
-#        #sleep(5)
-#        drone.down(50)
-#        sleep(5)
-#        drone.land()
-#        sleep(5)
-#    except Exception as ex:
-#        print(ex)
-#    finally:
-#        drone.quit()
+def CounterClockwiseTurn(drone, time):
+    drone.counter_clockwise(30)
+    sleep(time)
+    drone.clockwise(COUNTER_SPEED)
+    sleep(COUNTER_SLEEP)
+
+
+def test():
+    drone = tellopy.Tello()
+    try:
+        drone.subscribe(drone.EVENT_FLIGHT_DATA, handler)##
+
+        drone.connect()
+        drone.wait_for_connection(60.0)
+        drone.takeoff()
+        sleep(5)
+
+        MoveForward(drone, 17)
+        CounterClockwiseTurn(drone, 5)
+        MoveForward(drone, 8.5)
+        CounterClockwiseTurn(drone, 5)
+        MoveForward(drone, 17.3)
+        CounterClockwiseTurn(drone, 5)
+        MoveForward(drone, 8.5)
+        
+        drone.land()
+        sleep(5)
+    except Exception as ex:
+        print(ex)
+    finally:
+        drone.quit()
 
 def videoFrameHandler(event, sender, data):
     global video_player
@@ -104,7 +118,7 @@ def handleFileReceived(event, sender, data):
         datetime.datetime.now().strftime('%Y-%m-%d_%H%M%S'))
     with open(path, 'wb') as fd:
         fd.write(data)
-    status_print('Saved photo to %s' % path)
+    #status_print('Saved photo to %s' % path)
 
 def main():
     pygame.init()
@@ -166,7 +180,8 @@ def main():
         exit(1)
 
 if __name__ == '__main__':
-    main()
+    #main()
+    test()
 
 
 #Help on package tellopy:
